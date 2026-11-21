@@ -233,14 +233,23 @@ All in `files/validation.py`; every failure is a 400 with a clear message.
 
 ### `seed_files` management command
 
-`python manage.py seed_files [--clear]`
+`python manage.py seed_files [--count N] [--reset]` — content in `files/seed_content.py`,
+command in `files/management/commands/seed_files.py`.
 
-- 50 **real** PDFs with `reportlab`: 2–5 pages each, title, paragraphs, and at least
-  one table (e.g. fake invoice / report data). Names like `report_07.pdf`.
-- 50 **real** images with `Pillow`: mix of PNG and JPG, shapes/gradients + text label.
-- Generate in memory → `encrypt_bytes` → save `.enc` → create `FileRecord`.
-  Reuse `storage.py`, don't duplicate logic. Must set `sha256` (of the plaintext)
-  and `size`, like uploads do.
+- 50 **real** PDFs (`reportlab` platypus, 2–4 pages, all with tables): invoices
+  (`invoice_2026_01..12.pdf`), reports (`report_sales_q2.pdf`, …), certificates
+  (`certificate_ai_ml.pdf`, landscape), meeting minutes, project specs (some embed
+  large photos, so they are about 1 MB).
+- 50 **real** images (`Pillow`, 30 PNG / 20 JPG, 640×480 up to 2400×1600): bar and
+  pie charts, banners, ID badges, gradient posters, photo-like landscapes (grain
+  makes them about 1–2 MB). Total about 16.5 MB plaintext.
+- Deterministic: each file uses `random.Random(name)`; the list alternates
+  PDF/image so `--count N` gives a mix. Tests use `--count 4`.
+- Every file goes through `validation.validate_file` (same rules as an upload) and
+  `FileRecord.create_from_upload` (same encrypt+store path as the upload view).
+- **Idempotent:** `FileRecord.seed_key` (= generated name, NULL for real uploads);
+  existing keys are skipped even if renamed. `--reset` deletes only seeded records
+  (the signal removes their `.enc`).
 - Seeded files are **owned by the admin user**: `uploaded_by` = first superuser.
   If no superuser exists, stop with a clear error ("run createsuperuser first").
 - Use a fixed random seed so output is reproducible.

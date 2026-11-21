@@ -151,12 +151,12 @@ class UploadTests(FileAPITestCase):
 
     def test_just_over_10mb_rejected_before_encrypting(self):
         too_big = b"%PDF-" + b"0" * (10 * MB - 4)  # 10 MB + 1 byte
-        with mock.patch("files.views.save_encrypted") as save:
+        with mock.patch("files.storage.encrypt_bytes") as encrypt:
             response = self.post_file("big.pdf", too_big)
 
         self.assertEqual(response.status_code, 400)
         self.assertIn("too large", str(response.data["file"]))
-        save.assert_not_called()
+        encrypt.assert_not_called()
 
     def test_much_bigger_than_10mb_rejected(self):
         response = self.post_file("huge.pdf", b"%PDF-" + b"0" * (12 * MB))

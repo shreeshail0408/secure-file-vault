@@ -56,20 +56,7 @@ class FileRecordViewSet(
     # POST /files/  (multipart, field "file")
     def create(self, request):
         upload = read_upload(request)  # 400 if too big, empty, or not a real PDF/PNG/JPG
-        stored_name = save_encrypted(upload.data)
-        try:
-            record = FileRecord.objects.create(
-                original_name=upload.name,
-                file_type=upload.file_type,
-                mime_type=upload.mime_type,
-                size=len(upload.data),
-                sha256=upload.sha256,
-                stored_name=stored_name,
-                uploaded_by=request.user,
-            )
-        except Exception:
-            delete_file(stored_name)  # don't leave an orphan .enc behind
-            raise
+        record = FileRecord.create_from_upload(upload, owner=request.user)
         return Response(self.get_serializer(record).data, status=status.HTTP_201_CREATED)
 
     # PATCH /files/<id>/  {"original_name": "..."}

@@ -71,6 +71,13 @@ def _too_large():
     return ValidationError({"file": f"File is too large (max {max_mb} MB)."})
 
 
+def _check_size(size):
+    if size > settings.MAX_UPLOAD_SIZE:
+        raise _too_large()
+    if size == 0:
+        raise ValidationError({"file": "The file is empty."})
+
+
 def read_upload(request):
     """Validate the uploaded file in form field "file" and return an Upload.
 
@@ -88,12 +95,18 @@ def read_upload(request):
     uploaded = request.FILES.get("file")
     if uploaded is None:
         raise ValidationError({"file": "No file was provided (use form field 'file')."})
-    if uploaded.size > settings.MAX_UPLOAD_SIZE:
-        raise _too_large()
-    if uploaded.size == 0:
-        raise ValidationError({"file": "The file is empty."})
+    _check_size(uploaded.size)  # before reading it into memory
 
-    data = uploaded.read()
+    return validate_file(uploaded.name, uploaded.read())
+
+
+def validate_file(raw_name, data):
+    """The rules every stored file must pass: size, magic bytes, extension, name.
+
+    Used for HTTP uploads (via read_upload) and by the seed_files command,
+    so there is only one set of rules.
+    """
+    _check_size(len(data))
 
     for magic, file_type, mime_type, extensions in SIGNATURES:
         if data.startswith(magic):
@@ -101,7 +114,7 @@ def read_upload(request):
     else:  # no signature matched
         raise ValidationError({"file": "Only PDF, PNG and JPG files are allowed."})
 
-    name = _safe_basename(uploaded.name)
+    name = _safe_basename(raw_name)
     stem, extension = os.path.splitext(name)
     if extension.lower() not in extensions:
         allowed = ", ".join(sorted(extensions))
