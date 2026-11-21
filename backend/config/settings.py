@@ -146,6 +146,15 @@ REST_FRAMEWORK = {
     "PAGE_SIZE": 20,
 }
 
+# Brute-force protection for login and register, per client IP.
+# Read at request time by accounts.throttles.AuthRateThrottle, so tests can
+# override it. Counts are kept in Django's cache (per-process LocMem by default;
+# use a shared cache such as Redis when running several server processes).
+AUTH_THROTTLE_RATES = {
+    "login": "5/min",
+    "register": "5/min",
+}
+
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=30),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=1),

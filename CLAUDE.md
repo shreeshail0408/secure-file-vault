@@ -132,10 +132,10 @@ Losing the key means losing every file — warn about this in the README.
 
 | Method | Endpoint                         | Auth      | Purpose                                  |
 |--------|----------------------------------|-----------|------------------------------------------|
-| POST   | `auth/register/`                 | public    | create user                              |
-| POST   | `auth/login/`                    | public    | simplejwt `TokenObtainPairView`          |
+| POST   | `auth/register/`                 | public, throttled | username, email, password, confirm_password → 201 + user |
+| POST   | `auth/login/`                    | public, throttled | simplejwt `TokenObtainPairView` subclass |
 | POST   | `auth/refresh/`                  | public    | simplejwt `TokenRefreshView`             |
-| GET    | `auth/me/`                       | user      | current user (username, `is_staff`)      |
+| GET    | `auth/me/`                       | user      | exactly `id, username, email, is_staff`  |
 | GET    | `files/?search=&type=pdf\|image` | user      | list (paginated), search by name, filter |
 | POST   | `files/`                         | user      | upload (multipart, field `file`)         |
 | GET    | `files/<id>/`                    | user      | metadata                                 |
@@ -146,6 +146,16 @@ Losing the key means losing every file — warn about this in the README.
 | GET    | `files/<id>/download/`           | user      | decrypted, `attachment`                  |
 | GET    | `files/export/`                  | admin     | ZIP of all `.enc` files + `manifest.json`|
 
+- Auth rules (`accounts/`):
+  - Register runs Django's password validators; duplicate username or email
+    (case-insensitive) → 400 with a clear message.
+  - `RegisterSerializer` reads only its four fields and calls `create_user`, so
+    sending `is_staff`/`is_superuser` can never create an admin.
+  - No response ever contains the password or its hash (`UserSerializer` is the
+    only user output).
+  - Login and register are throttled per IP via `AUTH_THROTTLE_RATES` (5/min) and
+    `accounts.throttles.AuthRateThrottle`, which reads the rate at request time so
+    tests can override it. Tests run with throttling off, except `ThrottleTests`.
 - Use a DRF `ModelViewSet` + `@action`s for preview/download/replace/export to keep it in one readable file.
 - Search: `?search=` → `original_name__icontains`. Filter: `?type=` → `file_type`.
 - Permissions:
