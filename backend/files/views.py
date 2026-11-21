@@ -2,15 +2,16 @@ import logging
 import os
 
 from django.db import transaction
-from django.http import HttpResponse
+from django.http import FileResponse, HttpResponse
 from django.utils.http import content_disposition_header
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 
 from .crypto import DecryptionError
+from .export import build_export_zip, export_filename
 from .models import FileRecord
 from .permissions import IsOwnerOrAdmin
 from .serializers import FileRecordSerializer, RenameSerializer
@@ -62,6 +63,7 @@ class FileRecordViewSet(
                 file_type=upload.file_type,
                 mime_type=upload.mime_type,
                 size=len(upload.data),
+                sha256=upload.sha256,
                 stored_name=stored_name,
                 uploaded_by=request.user,
             )
@@ -99,6 +101,7 @@ class FileRecordViewSet(
         record.original_name = stem + os.path.splitext(upload.name)[1]
         record.mime_type = upload.mime_type
         record.size = len(upload.data)
+        record.sha256 = upload.sha256
         record.stored_name = new_stored_name
         try:
             record.save()
@@ -109,6 +112,19 @@ class FileRecordViewSet(
         # Remove the old .enc only once the database change is saved.
         transaction.on_commit(lambda: delete_file(old_stored_name))
         return Response(self.get_serializer(record).data)
+
+    # GET /files/export/  (admins only)
+    # permission_classes here REPLACES the viewset's list for this action.
+    @action(detail=False, methods=["get"], permission_classes=[IsAuthenticated, IsAdminUser])
+    def export(self, request):
+        records = FileRecord.objects.order_by("id")  # all files, ignores ?search/?type
+        zip_file = build_export_zip(records)
+        # FileResponse streams the temp file in chunks and closes (= deletes) it at the end.
+        response = FileResponse(
+            zip_file, as_attachment=True, filename=export_filename(), content_type="application/zip"
+        )
+        response["Cache-Control"] = "private, no-store"
+        return response
 
     # GET /files/<id>/preview/
     @action(detail=True, methods=["get"])

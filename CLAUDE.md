@@ -105,6 +105,7 @@ Losing the key means losing every file — warn about this in the README.
 | `file_type`    | CharField choices `pdf` / `image`     | used for filtering                 |
 | `mime_type`    | CharField(100)                        | e.g. `application/pdf`, `image/png`|
 | `size`         | PositiveIntegerField                  | original (plaintext) size in bytes |
+| `sha256`       | CharField(64)                         | hex SHA-256 of the plaintext, set at upload/replace; used by export manifest |
 | `stored_name`  | CharField(255), unique                | `<uuid4>.enc` — never the user's name |
 | `uploaded_by`  | FK → User, `SET_NULL`, nullable       | the owner; files survive user deletion (then only admins can edit) |
 | `created_at`   | DateTimeField(auto_now_add)           |                                    |
@@ -215,8 +216,20 @@ All in `files/validation.py`; every failure is a 400 with a clear message.
     action. A non-owner gets **403**, no matter what the frontend shows.
   - The serializer adds a read-only `can_edit` boolean (same rule) so the frontend
     doesn't duplicate the logic.
-- Export ZIP contains the **still-encrypted** `.enc` files plus `manifest.json`
-  mapping `stored_name → original_name, mime_type`, so the mentor can restore names.
+- **Export** (`GET files/export/`, `files/export.py`), admin only (no token → 401,
+  non-admin → 403), filename `vault-export-YYYY-MM-DD.zip`:
+  - ZIP root: every `<uuid>.enc` (still encrypted, byte-for-byte), `manifest.json`,
+    `README.txt` (how to use `decrypt_tool.py`; says the key is NOT included).
+  - `manifest.json`: `exported_at`, `file_count`, `missing` (original names whose
+    `.enc` was gone, logged as a warning), and `files[]` with `stored_name,
+    original_name, mime_type, size, sha256`.
+  - `sha256` is of the **plaintext**, stored on `FileRecord` at upload/replace, so
+    export **never decrypts**.
+  - Built into an anonymous `tempfile.TemporaryFile` (ciphertext only, deleted on
+    close) with `ZIP_STORED`, adding `.enc` files one at a time, which streams them
+    in chunks. Sent with `FileResponse` (chunked).
+  - `FERNET_KEY` must never be in the ZIP. A test scans every entry and the raw ZIP
+    for the key (text, raw bytes, both halves) and `SECRET_KEY`.
 
 ### `seed_files` management command
 
@@ -226,7 +239,8 @@ All in `files/validation.py`; every failure is a 400 with a clear message.
   one table (e.g. fake invoice / report data). Names like `report_07.pdf`.
 - 50 **real** images with `Pillow`: mix of PNG and JPG, shapes/gradients + text label.
 - Generate in memory → `encrypt_bytes` → save `.enc` → create `FileRecord`.
-  Reuse `storage.py`, don't duplicate logic.
+  Reuse `storage.py`, don't duplicate logic. Must set `sha256` (of the plaintext)
+  and `size`, like uploads do.
 - Seeded files are **owned by the admin user**: `uploaded_by` = first superuser.
   If no superuser exists, stop with a clear error ("run createsuperuser first").
 - Use a fixed random seed so output is reproducible.

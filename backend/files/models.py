@@ -18,6 +18,10 @@ class FileRecord(models.Model):
     mime_type = models.CharField(max_length=100)  # e.g. "application/pdf"
     size = models.PositiveIntegerField()  # plaintext size in bytes
     stored_name = models.CharField(max_length=255, unique=True)  # "<uuid4>.enc"
+    # SHA-256 of the ORIGINAL (plaintext) bytes, saved at upload/replace time.
+    # Goes into the export manifest so a decrypted copy can be checked for an
+    # exact match, without the server ever decrypting during export.
+    sha256 = models.CharField(max_length=64)
     uploaded_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,  # keep files if the uploader's account is deleted

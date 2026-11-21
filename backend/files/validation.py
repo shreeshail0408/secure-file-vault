@@ -5,6 +5,7 @@ Everything here raises DRF's ValidationError, which DRF turns into a 400
 response with a clear message.
 """
 
+import hashlib
 import os
 import unicodedata
 from collections import namedtuple
@@ -24,8 +25,8 @@ SIGNATURES = [
     (b"\xff\xd8\xff", FileRecord.IMAGE, "image/jpeg", {".jpg", ".jpeg"}),
 ]
 
-# A validated upload, ready to encrypt.
-Upload = namedtuple("Upload", ["name", "data", "file_type", "mime_type"])
+# A validated upload, ready to encrypt. sha256 is of the plaintext.
+Upload = namedtuple("Upload", ["name", "data", "file_type", "mime_type", "sha256"])
 
 
 # --- File names -------------------------------------------------------------
@@ -109,4 +110,10 @@ def read_upload(request):
         )
     _check_name(stem, name, "file")
 
-    return Upload(name=name, data=data, file_type=file_type, mime_type=mime_type)
+    return Upload(
+        name=name,
+        data=data,
+        file_type=file_type,
+        mime_type=mime_type,
+        sha256=hashlib.sha256(data).hexdigest(),
+    )

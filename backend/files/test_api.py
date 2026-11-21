@@ -1,5 +1,6 @@
 """API tests for /api/files/ (Phase 4)."""
 
+import hashlib
 import io
 from unittest import mock
 
@@ -51,6 +52,7 @@ class FileAPITestCase(TempStorageMixin, TestCase):
         data = data if data is not None else make_pdf_bytes()
         return FileRecord.objects.create(
             original_name=name, file_type=file_type, mime_type=mime, size=len(data),
+            sha256=hashlib.sha256(data).hexdigest(),
             stored_name=save_encrypted(data), uploaded_by=owner,
         )
 
@@ -104,6 +106,7 @@ class UploadTests(FileAPITestCase):
         self.assertTrue(response.data["can_edit"])
         record = FileRecord.objects.get(id=response.data["id"])
         self.assertEqual(decrypt_bytes(self.enc_path(record).read_bytes()), pdf)
+        self.assertEqual(record.sha256, hashlib.sha256(pdf).hexdigest())  # of the plaintext
 
     def test_upload_png_and_jpg(self):
         for name, data, mime in [
@@ -482,6 +485,8 @@ class ReplaceTests(FileAPITestCase):
         self.assertFalse(self.old_path.exists())  # old .enc cleaned up
         self.assertEqual(decrypt_bytes(new_path.read_bytes()), new_pdf)
         self.assertEqual(self.stored_files(), [new_path.name])
+        self.record.refresh_from_db()
+        self.assertEqual(self.record.sha256, hashlib.sha256(new_pdf).hexdigest())
 
     def test_png_replaced_by_jpg_updates_mime_and_extension(self):
         record = self.make_record(self.alice, "logo.png", make_png_bytes(), "image", "image/png")
