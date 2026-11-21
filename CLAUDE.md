@@ -44,13 +44,16 @@ decrypt those files offline with `decrypt_tool.py`.
 ```
 file-encryption/
 ├── CLAUDE.md
+├── README.md                        # overview, security design, setup, tests, mentor demo, limitations
+├── DEPLOY.md                        # PythonAnywhere step by step
 ├── backend/
 │   ├── manage.py
 │   ├── requirements.txt
 │   ├── .env.example
 │   ├── decrypt_tool.py              # standalone offline decryptor
 │   ├── storage/                     # *.enc files live here (git-ignored)
-│   ├── config/                      # Django project: settings.py, urls.py
+│   ├── staticfiles/                 # collectstatic output (git-ignored, .gitkeep only)
+│   ├── config/                      # settings.py, urls.py, views.py (React index + JSON 404), test_production.py
 │   ├── accounts/                    # register endpoint (login/refresh = simplejwt)
 │   └── files/
 │       ├── models.py                # FileRecord
@@ -65,7 +68,8 @@ file-encryption/
 └── frontend/
     ├── package.json
     ├── .env.example                 # VITE_API_URL=http://localhost:8077/api
-    ├── vite.config.js               # port 5173 (strict) + vitest config
+    ├── .env.production              # VITE_API_URL=/api (committed, used by npm run build)
+    ├── vite.config.js               # port 5173 (strict), base "/static/" for build, vitest config
     └── src/
         ├── main.jsx, App.jsx        # router setup
         ├── api/  client.js (axios + interceptors), tokens.js, errors.js (describeError)
@@ -99,6 +103,36 @@ Generate a key:
 
 Settings must **fail loudly at startup** if `FERNET_KEY` is missing or invalid.
 Losing the key means losing every file — warn about this in the README.
+
+Production-only (see `DEPLOY.md`): `CSRF_TRUSTED_ORIGINS`, `NUM_PROXIES=1`,
+`SECURE_HSTS_SECONDS` (default 3600 when `DEBUG=False`), `SECURE_SSL_REDIRECT`
+(default `not DEBUG`).
+
+### Production settings (`DEBUG=False`)
+
+- `manage.py check --deploy --fail-level WARNING` must stay clean (`DeployCheckTests`
+  runs it in a subprocess). Only `security.W021` (HSTS preload) is silenced: not
+  possible on a `*.pythonanywhere.com` subdomain.
+- `SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")` (PythonAnywhere's
+  proxy); SSL redirect, secure session/CSRF cookies, HSTS + includeSubDomains,
+  `X_FRAME_OPTIONS = "DENY"`, nosniff, `same-origin` referrer.
+- `REST_FRAMEWORK["NUM_PROXIES"]` from env, default **0** (ignore X-Forwarded-For).
+  DRF's default `None` trusts the whole header, so a client could fake it and dodge
+  the login throttle. PythonAnywhere: 1 → last XFF entry (added by the proxy).
+  Tested in `accounts.tests.ThrottleClientIpTests`.
+- **Single host:** Django serves the React build. `FRONTEND_DIST = frontend/dist`
+  is in `STATICFILES_DIRS` (only if it exists); `collectstatic` → `STATIC_ROOT =
+  backend/staticfiles`; WhiteNoise (`CompressedStaticFilesStorage`, no manifest since
+  Vite hashes names; `/static/assets/` marked immutable). On PythonAnywhere a
+  `/static/` static-files mapping serves the same folder.
+- `config/urls.py` catch-all `^(?!(?:api|admin|static)(?:/|$)).*$` →
+  `config.views.frontend_app` (index.html, `Cache-Control: no-cache`, GET/HEAD only,
+  503 "run npm run build" if missing). Before it, `^api/(?:.*/)?$` →
+  `config.views.api_not_found` (csrf-exempt JSON 404 `{"detail": "Not found."}`):
+  a route, not `handler404`, so it is JSON even with `DEBUG=True`. Only URLs ending
+  in `/`, so `APPEND_SLASH` still redirects `/api/files` → `/api/files/`.
+- MySQL (optional, `mysqlclient`): settings add `charset=utf8mb4` and
+  `STRICT_TRANS_TABLES`. SQLite stays the default.
 
 ---
 
@@ -392,7 +426,8 @@ Each phase ends with its checks passing. Stop and confirm before the next phase.
 | 8 | **Frontend setup**: Vite, router, Bootstrap, axios client, Login/Register, ProtectedRoute | Can register/log in; protected page redirects when logged out; token auto-refresh works |
 | 9 | **Dashboard**: grid, search, filter, pagination, preview modal, download | Search & filter work against seeded data; PDF and images preview correctly |
 | 10 | **Upload, Rename/Replace, Delete, Export button** | Full manual walkthrough of every feature passes |
-| 11 | **Polish & README**: setup steps, key handling warning, review talking points | Fresh clone → follow README → app runs |
+| 11 | **Production readiness + docs**: `check --deploy` clean, proxy-aware throttling, Django serves `frontend/dist` (WhiteNoise + catch-all), README, DEPLOY.md | Tests pass; `DEBUG=False` smoke run serves app + JSON 404s; fresh clone → README → app runs |
+| 12 | **Deploy to PythonAnywhere** following `DEPLOY.md` | Live site passes DEPLOY.md step 9 checks |
 
 ---
 
@@ -416,7 +451,12 @@ npm install
 cp .env.example .env            # VITE_API_URL=http://localhost:8077/api
 npm run dev                     # http://localhost:5173 (must match FRONTEND_URL for CORS)
 npm test                        # vitest run
-npm run lint && npm run build
+npm run lint && npm run build   # build → dist/ with /static/ asset URLs and VITE_API_URL=/api
+
+# Production-like, single host
+cd frontend && npm run build && cd ../backend
+python manage.py collectstatic --noinput
+python manage.py check --deploy  # with DEBUG=False etc. in the environment
 ```
 
 ---

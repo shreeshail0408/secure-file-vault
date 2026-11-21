@@ -200,3 +200,55 @@ class ThrottleTests(AuthTestCase):
             REGISTER_URL, register_payload(username="u5", email="u5@example.com")
         )
         self.assertEqual(response.status_code, 429)
+
+
+def with_num_proxies(n):
+    """override_settings for REST_FRAMEWORK["NUM_PROXIES"] (DRF reloads its settings on change)."""
+    from django.conf import settings
+
+    return override_settings(REST_FRAMEWORK={**settings.REST_FRAMEWORK, "NUM_PROXIES": n})
+
+
+@override_settings(AUTH_THROTTLE_RATES={"login": "2/min", "register": "2/min"})
+class ThrottleClientIpTests(AuthTestCase):
+    """Throttling must count the REAL client, and a client must not be able to
+    escape the limit by sending a made-up X-Forwarded-For header."""
+
+    PROXY = "10.0.0.1"  # REMOTE_ADDR seen by Django behind PythonAnywhere's proxy
+
+    def login_from(self, forwarded_for, remote_addr=PROXY):
+        return self.client.post(
+            LOGIN_URL, {"username": "x", "password": "y"},
+            REMOTE_ADDR=remote_addr, HTTP_X_FORWARDED_FOR=forwarded_for,
+        )
+
+    def use_up_limit(self, forwarded_for, remote_addr=PROXY):
+        for _ in range(2):
+            self.assertEqual(self.login_from(forwarded_for, remote_addr).status_code, 401)
+
+    @with_num_proxies(1)
+    def test_behind_proxy_each_client_ip_has_its_own_limit(self):
+        self.use_up_limit("203.0.113.5")
+        self.assertEqual(self.login_from("203.0.113.5").status_code, 429)
+        # Another visitor behind the same proxy is NOT blocked.
+        self.assertEqual(self.login_from("198.51.100.7").status_code, 401)
+
+    @with_num_proxies(1)
+    def test_behind_proxy_a_faked_header_does_not_reset_the_limit(self):
+        # The proxy APPENDS the real IP; anything before it came from the client.
+        self.use_up_limit("203.0.113.5")
+        response = self.login_from("1.2.3.4, 203.0.113.5")
+        self.assertEqual(response.status_code, 429)
+
+    @with_num_proxies(0)
+    def test_without_proxy_the_header_is_ignored(self):
+        # Local/direct: X-Forwarded-For is whatever the client typed, so only REMOTE_ADDR counts.
+        self.use_up_limit("1.1.1.1", remote_addr="192.0.2.9")
+        self.assertEqual(self.login_from("2.2.2.2", remote_addr="192.0.2.9").status_code, 429)
+        self.assertEqual(self.login_from("1.1.1.1", remote_addr="192.0.2.10").status_code, 401)
+
+    def test_default_setting_is_not_drfs_trust_everything(self):
+        from django.conf import settings
+
+        # DRF's default (None) would trust a client-supplied X-Forwarded-For.
+        self.assertIsNotNone(settings.REST_FRAMEWORK["NUM_PROXIES"])

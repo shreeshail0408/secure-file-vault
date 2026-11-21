@@ -8,6 +8,7 @@ python-dotenv==1.2.4
 cryptography==50.0.2
 reportlab==5.1.0
 Pillow==13.0.0
+whitenoise==6.12.0
 
 # Production DB driver — install the one matching your DATABASE_URL:
 # (pin the exact version when you add it for deployment)

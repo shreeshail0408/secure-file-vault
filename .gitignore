@@ -14,3 +14,7 @@ backend/storage/*
 # Frontend
 node_modules/
 dist/
+
+# Built/collected files
+backend/staticfiles/*
+!backend/staticfiles/.gitkeep

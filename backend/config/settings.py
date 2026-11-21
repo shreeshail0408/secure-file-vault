@@ -31,11 +31,48 @@ def require_env(name):
     return value
 
 
+def env_list(name, default=""):
+    """Comma-separated env variable -> list, ignoring blanks ("a, b," -> ["a", "b"])."""
+    return [item.strip() for item in os.environ.get(name, default).split(",") if item.strip()]
+
+
+def env_bool(name, default):
+    return os.environ.get(name, str(default)).lower() == "true"
+
+
 # --- Core -------------------------------------------------------------------
 
 SECRET_KEY = require_env("SECRET_KEY")
-DEBUG = os.environ.get("DEBUG", "False").lower() == "true"
-ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
+DEBUG = env_bool("DEBUG", False)  # off unless .env says DEBUG=True
+ALLOWED_HOSTS = env_list("ALLOWED_HOSTS", "localhost,127.0.0.1")
+# Origins allowed to POST forms with a CSRF cookie (the Django admin login over HTTPS),
+# e.g. "https://yourname.pythonanywhere.com".
+CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS")
+
+
+# --- HTTPS / security headers (production) ----------------------------------
+# All on by default when DEBUG is off; `python manage.py check --deploy` is clean.
+# Locally (DEBUG=True) they are off, because runserver only speaks plain HTTP.
+
+# PythonAnywhere's front-end proxy talks HTTPS to the browser and plain HTTP to
+# Django, and tells us the original scheme in X-Forwarded-Proto. Without this,
+# Django would think every request is HTTP and redirect forever.
+# Only safe behind a proxy that always sets (or overwrites) this header.
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+SECURE_SSL_REDIRECT = env_bool("SECURE_SSL_REDIRECT", not DEBUG)  # http:// -> https://
+SESSION_COOKIE_SECURE = not DEBUG  # admin session cookie only over HTTPS
+CSRF_COOKIE_SECURE = not DEBUG
+# HSTS: browsers remember "HTTPS only" for this many seconds. Start small (1 hour);
+# raise it (e.g. 31536000 = 1 year) once HTTPS is known to work.
+SECURE_HSTS_SECONDS = int(os.environ.get("SECURE_HSTS_SECONDS", "0" if DEBUG else "3600"))
+SECURE_HSTS_INCLUDE_SUBDOMAINS = not DEBUG
+# HSTS "preload" needs a domain you own and submitting it to hstspreload.org;
+# not possible for a *.pythonanywhere.com subdomain, so that one check is silenced.
+SILENCED_SYSTEM_CHECKS = ["security.W021"]
+# Already Django's defaults, written out so the review can see them:
+SECURE_CONTENT_TYPE_NOSNIFF = True  # X-Content-Type-Options: nosniff
+SECURE_REFERRER_POLICY = "same-origin"
+X_FRAME_OPTIONS = "DENY"
 
 
 # --- Encryption key ---------------------------------------------------------
@@ -88,6 +125,8 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    # Serves the collected static files (React build + admin CSS) from Django itself.
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "corsheaders.middleware.CorsMiddleware",  # must come before CommonMiddleware
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -146,6 +185,13 @@ DATABASES = {
     )
 }
 
+# Optional MySQL (e.g. PythonAnywhere's): needs `pip install mysqlclient`.
+if DATABASES["default"]["ENGINE"] == "django.db.backends.mysql":
+    DATABASES["default"].setdefault("OPTIONS", {}).update({
+        "charset": "utf8mb4",  # full UTF-8, so any file name (even emoji) can be stored
+        "init_command": "SET sql_mode='STRICT_TRANS_TABLES'",  # error instead of silently cutting data
+    })
+
 
 # --- Auth -------------------------------------------------------------------
 
@@ -167,6 +213,11 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 20,
+    # How many proxies sit in front of Django; used to find the client IP for
+    # throttling. 0 (local): ignore X-Forwarded-For, which a client can fake.
+    # 1 (PythonAnywhere): use the last X-Forwarded-For entry, the one the proxy added.
+    # (DRF's default, None, trusts the whole header, so faking it would bypass throttling.)
+    "NUM_PROXIES": int(os.environ.get("NUM_PROXIES", "0")),
 }
 
 # Brute-force protection for login and register, per client IP.
@@ -188,12 +239,9 @@ SIMPLE_JWT = {
 # --- CORS -------------------------------------------------------------------
 # Only the React dev server / deployed frontend may call the API from a browser.
 
-# Comma-separated, e.g. "http://localhost:5173,http://127.0.0.1:5173"
-CORS_ALLOWED_ORIGINS = [
-    origin.strip()
-    for origin in os.environ.get("FRONTEND_URL", "http://localhost:5173").split(",")
-    if origin.strip()
-]
+# Comma-separated, e.g. "http://localhost:5173,http://127.0.0.1:5173".
+# In production Django serves the React app itself (same origin), so CORS isn't used there.
+CORS_ALLOWED_ORIGINS = env_list("FRONTEND_URL", "http://localhost:5173")
 # Let the frontend read the filename on downloads.
 CORS_EXPOSE_HEADERS = ["Content-Disposition"]
 
@@ -205,5 +253,29 @@ TIME_ZONE = "UTC"
 USE_I18N = True
 USE_TZ = True
 
+# The React build (`npm run build` -> frontend/dist) is served by Django:
+#   dist/index.html  -> every non-API URL (config.views.frontend_app, for React Router)
+#   dist/assets/*    -> collected into STATIC_ROOT and served under /static/
+#                       (Vite builds with base "/static/", see frontend/vite.config.js)
+FRONTEND_DIST = BASE_DIR.parent / "frontend" / "dist"
+
 STATIC_URL = "static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"  # `manage.py collectstatic` copies files here
+# Only if it was built, so `manage.py` still works before the first `npm run build`.
+STATICFILES_DIRS = [FRONTEND_DIST] if FRONTEND_DIST.exists() else []
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    # Adds pre-compressed .gz/.br copies. No hashed "manifest" names: Vite's
+    # output names already contain a content hash.
+    "staticfiles": {"BACKEND": "whitenoise.storage.CompressedStaticFilesStorage"},
+}
+
+
+def immutable_file_test(path, url):
+    """Vite puts a content hash in every file name under assets/, so a file at a
+    given URL never changes: browsers may cache it forever (WhiteNoise header)."""
+    return url.startswith("/static/assets/")
+
+
+WHITENOISE_IMMUTABLE_FILE_TEST = immutable_file_test
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
