@@ -15,6 +15,32 @@ export function listFiles({ search, type, page }, { signal } = {}) {
     .then((response) => response.data); // { count, next, previous, results }
 }
 
+// --- Changing files (each resolves to the updated file object from the API) ---
+
+// Upload / replace send multipart form data with the file in field "file".
+// onProgress(percent) is called as the browser sends the bytes.
+function sendFile(method, url, file, onProgress) {
+  const form = new FormData();
+  form.append("file", file);
+  return api
+    .request({
+      method,
+      url,
+      data: form,
+      onUploadProgress: (event) => event.total && onProgress?.(Math.round((100 * event.loaded) / event.total)),
+    })
+    .then((response) => response.data);
+}
+
+export const uploadFile = (file, onProgress) => sendFile("post", "/files/", file, onProgress);
+
+export const replaceFile = (id, file, onProgress) => sendFile("put", `/files/${id}/replace/`, file, onProgress);
+
+export const renameFile = (id, name) =>
+  api.patch(`/files/${id}/`, { original_name: name }).then((response) => response.data);
+
+export const deleteFile = (id) => api.delete(`/files/${id}/`);
+
 // GET a file as a Blob (preview, download, export). Goes through `api`, so an
 // expired access token is refreshed automatically.
 export function fetchBlob(url, { signal } = {}) {

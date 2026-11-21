@@ -1,39 +1,11 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { setTokens } from "../api/tokens";
-import { ALICE, deferred, EMPTY_PAGE, fakeServer, renderApp } from "../test/fakeServer";
+import { ALICE, deferred, EMPTY_PAGE } from "../test/fakeServer";
+import { listEndpoint, makeFiles, startDashboard } from "../test/fileFixtures";
 
-// 45 files → 3 pages of 20. Alice owns the even ids.
-const ALL_FILES = Array.from({ length: 45 }, (_, i) => ({
-  id: i + 1,
-  original_name: i % 2 ? `photo_${i + 1}.png` : `invoice_${i + 1}.pdf`,
-  file_type: i % 2 ? "image" : "pdf",
-  mime_type: i % 2 ? "image/png" : "application/pdf",
-  size: (i + 1) * 100 * 1024,
-  uploaded_by: i % 2 ? "bob" : "alice",
-  can_edit: !(i % 2),
-  created_at: "2026-11-21T10:30:00Z",
-  updated_at: "2026-11-21T10:30:00Z",
-}));
-
-// Behaves like the real API: search, type filter, pages of 20, 404 for a bad page.
-function filesEndpoint(config) {
-  const { search = "", type = "", page = 1 } = config.params || {};
-  const matches = ALL_FILES.filter(
-    (f) => f.original_name.toLowerCase().includes(search.toLowerCase()) && (!type || f.file_type === type),
-  );
-  const results = matches.slice((page - 1) * 20, page * 20);
-  if (page > 1 && results.length === 0) return { status: 404, data: { detail: "Invalid page." } };
-  return { status: 200, data: { count: matches.length, next: null, previous: null, results } };
-}
-
-function startDashboard(path = "/", { user = ALICE, routes = {} } = {}) {
-  setTokens({ access: "a", refresh: "r" });
-  const server = fakeServer({ "GET /auth/me/": { status: 200, data: user }, "GET /files/": filesEndpoint, ...routes });
-  renderApp(path);
-  return server;
-}
+const ALL_FILES = makeFiles(45);
+const filesEndpoint = listEndpoint(ALL_FILES);
 
 const location = () => screen.getByTestId("location").textContent;
 const cards = () => screen.queryAllByTestId("file-card");
@@ -60,10 +32,10 @@ describe("file grid", () => {
     startDashboard();
     await screen.findByText("invoice_1.pdf");
 
-    expect(within(cardFor("invoice_1.pdf")).getByRole("button", { name: "Edit" })).toBeInTheDocument();
-    expect(within(cardFor("invoice_1.pdf")).getByRole("button", { name: "Delete" })).toBeInTheDocument();
-    expect(within(cardFor("photo_2.png")).queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
-    expect(within(cardFor("photo_2.png")).queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
+    expect(within(cardFor("invoice_1.pdf")).getByRole("button", { name: "Edit invoice_1.pdf" })).toBeInTheDocument();
+    expect(within(cardFor("invoice_1.pdf")).getByRole("button", { name: "Delete invoice_1.pdf" })).toBeInTheDocument();
+    expect(within(cardFor("photo_2.png")).queryByRole("button", { name: /^Edit/ })).not.toBeInTheDocument();
+    expect(within(cardFor("photo_2.png")).queryByRole("button", { name: /^Delete/ })).not.toBeInTheDocument();
   });
 
   it("shows 'Export all' only to admins", async () => {

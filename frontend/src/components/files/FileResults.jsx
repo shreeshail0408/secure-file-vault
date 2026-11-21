@@ -4,7 +4,7 @@ import LoadingGrid from "./LoadingGrid";
 import Pagination from "./Pagination";
 
 // The list area: loading → error → empty → grid + pagination.
-export default function FileResults({ loading, data, error, retry, filters, onPreview, onDownload }) {
+export default function FileResults({ loading, data, error, retry, filters, onPreview, onDownload, onEdit, onDelete }) {
   if (loading) return <LoadingGrid />;
 
   if (error) {
@@ -49,7 +49,7 @@ export default function FileResults({ loading, data, error, retry, filters, onPr
       <div className="row g-3">
         {data.results.map((file) => (
           <div className="col-sm-6 col-lg-4 col-xl-3" key={file.id}>
-            <FileCard file={file} onPreview={onPreview} onDownload={onDownload} />
+            <FileCard file={file} onPreview={onPreview} onDownload={onDownload} onEdit={onEdit} onDelete={onDelete} />
           </div>
         ))}
       </div>

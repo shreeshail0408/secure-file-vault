@@ -24,3 +24,15 @@ export function describeError(error) {
     fieldErrors: {},
   };
 }
+
+// Same as describeError, with clearer wording for rename / replace / delete.
+export function describeChangeError(error) {
+  const status = error.response?.status;
+  if (status === 403) {
+    return { message: "You can't modify this file: only its uploader or an admin can.", fieldErrors: {} };
+  }
+  if (status === 404) {
+    return { message: "This file no longer exists (someone may have deleted it).", fieldErrors: {} };
+  }
+  return describeError(error);
+}

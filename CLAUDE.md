@@ -70,13 +70,15 @@ file-encryption/
         ├── main.jsx, App.jsx        # router setup
         ├── api/  client.js (axios + interceptors), tokens.js, errors.js (describeError)
         ├── auth/ AuthContext.jsx (AuthProvider), useAuth.js, ProtectedRoute.jsx, PublicOnlyRoute.jsx
-        ├── pages/  Login.jsx, Register.jsx, Dashboard.jsx (+ Upload in Phase 10)
+        ├── pages/  Login.jsx, Register.jsx, Dashboard.jsx (holds which dialog is open + toast)
         ├── api/files.js             # listFiles, fetchBlob, downloadFile, filenameFromDisposition, describeBlobError
-        ├── hooks/  useFileFilters.js (URL state), useFileList.js (fetch + derived loading)
-        ├── utils/format.js          # formatSize, formatDate
-        ├── components/  Navbar, Spinner, TextField, SubmitButton, AuthCard, BusyButton
-        ├── components/files/  SearchBar, FileResults, FileCard, LoadingGrid, Pagination, PreviewModal
-        └── test/  setup.js, fakeServer.jsx (fake axios adapter + renderApp); *.test.js(x) next to code
+        ├── hooks/  useFileFilters.js (URL state), useFileList.js (fetch + derived loading),
+        │           useFileUpload.js (pick + pre-check + progress + errors, for Upload and Replace)
+        ├── utils/  format.js (formatSize, formatDate), fileCheck.js (checkFile, acceptFor)
+        ├── components/  Navbar, Spinner, TextField, SubmitButton, AuthCard, BusyButton, Modal, Toast
+        ├── components/files/  SearchBar, FileResults, FileCard, LoadingGrid, Pagination, PreviewModal,
+        │                      UploadModal, EditModal (Rename / Replace tabs), DeleteDialog, FilePicker, UploadProgress
+        └── test/  setup.js, fakeServer.jsx (fake axios adapter + renderApp), fileFixtures.js; *.test.js(x) next to code
 ```
 
 ---
@@ -326,7 +328,7 @@ no Redux. Small components.
   - `FileCard`: Bootstrap Icons type icon (no thumbnails; that would mean decrypting
     every image on the page), name, PDF/Image badge, size (`utils/format.js`:
     B/KB/MB), date (`21 Nov 2026`, en-GB), uploader. Preview + Download always;
-    Edit/Delete **only when `file.can_edit`** (disabled placeholders until Phase 10).
+    Edit/Delete **only when `file.can_edit`**.
     Hiding is just UX; the API still returns 403.
   - **URL is the state** (`hooks/useFileFilters.js`): `?search=&type=&page=`, so
     reload and Back work. A new search or type → page 1. Page/type changes push a
@@ -352,8 +354,24 @@ no Redux. Small components.
   un-escapes quoted `filename`, falls back to `original_name`) → `saveBlob`
   (temporary `<a download>`, URL revoked after 1 s). Needs
   `CORS_EXPOSE_HEADERS = ["Content-Disposition"]` (backend settings).
-- **Rename/Replace modal:** text input for rename (PATCH), file input for replace (PUT).
-- **Delete:** confirm dialog, then DELETE and refresh the list.
+- **Modals:** one `Modal` component (Bootstrap classes, no Bootstrap JS); Escape,
+  × and backdrop close it, except while `busy` (mid-upload/save). Dashboard keeps
+  one `dialog` state (`{kind, file}`), so only one is open at a time.
+- **Upload** (`UploadModal`): `FilePicker` (click or drag-and-drop) → browser
+  pre-check `utils/fileCheck.js` (`.pdf/.png/.jpg/.jpeg` + MIME, not empty, ≤
+  `MAX_UPLOAD_MB` = 10, must match the backend). Only for fast feedback; the backend
+  still decides by magic bytes. `uploadFile` sends `FormData` with
+  `onUploadProgress` → `UploadProgress` bar. Backend `{"file": [...]}` errors show
+  under the picker. Success → toast, `setPage(1)` + `retry()` (newest first).
+- **EditModal**, tab **Rename**: prefilled `TextField`, says the extension is kept
+  (the backend forces it), `original_name` field errors under the input. Tab
+  **Replace file**: explains it must be the same type; `accept` and the pre-check
+  allow only that type; same progress/error handling (`useFileUpload`).
+- **Delete** (`DeleteDialog`): names the file, Cancel / Delete. If it was the only
+  card on a page > 1 → previous page, otherwise `retry()`.
+- `describeChangeError` (`api/errors.js`): 403 → "You can't modify this file: only
+  its uploader or an admin can.", 404 → "This file no longer exists…". The dialog
+  stays open on errors. Success messages go in a `Toast` (auto-hides after 4 s).
 - Show loading and error messages for every request.
 
 ---

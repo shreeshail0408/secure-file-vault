@@ -8,7 +8,7 @@ const LOOK = {
   image: { icon: "bi-file-earmark-image", color: "text-primary", label: "Image" },
 };
 
-export default function FileCard({ file, onPreview, onDownload }) {
+export default function FileCard({ file, onPreview, onDownload, onEdit, onDelete }) {
   const look = LOOK[file.file_type] || LOOK.pdf;
 
   return (
@@ -40,11 +40,13 @@ export default function FileCard({ file, onPreview, onDownload }) {
         {/* Hiding these is only UX; the API still returns 403 for other people's files. */}
         {file.can_edit && (
           <>
-            <button type="button" className="btn btn-outline-secondary btn-sm" disabled title="Coming in Phase 10">
-              Edit
+            <button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => onEdit(file)}
+              aria-label={`Edit ${file.original_name}`}>
+              <i className="bi bi-pencil me-1" aria-hidden="true" />Edit
             </button>
-            <button type="button" className="btn btn-outline-danger btn-sm" disabled title="Coming in Phase 10">
-              Delete
+            <button type="button" className="btn btn-outline-danger btn-sm" onClick={() => onDelete(file)}
+              aria-label={`Delete ${file.original_name}`}>
+              <i className="bi bi-trash me-1" aria-hidden="true" />Delete
             </button>
           </>
         )}
