@@ -1,0 +1,15 @@
+# Python 3.12 + Django 5.2 LTS (supported until April 2028)
+Django==5.2.19
+djangorestframework==3.18.3
+djangorestframework-simplejwt==5.5.1
+django-cors-headers==4.9.0
+dj-database-url==3.1.2
+python-dotenv==1.2.4
+cryptography==50.0.2
+reportlab==5.1.0
+Pillow==13.0.0
+
+# Production DB driver — install the one matching your DATABASE_URL:
+# (pin the exact version when you add it for deployment)
+# psycopg[binary]           # PostgreSQL
+# mysqlclient               # MySQL (needs libmysqlclient-dev)
