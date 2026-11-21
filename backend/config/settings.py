@@ -125,10 +125,24 @@ WSGI_APPLICATION = "config.wsgi.application"
 #   mysql://user:pass@host:3306/dbname
 # Falls back to a local SQLite file if not set.
 
+def resolve_sqlite_path(db_config, base_dir):
+    """Make a relative SQLite path relative to backend/, not the current folder.
+
+    dj_database_url turns "sqlite:///db.sqlite3" into NAME="db.sqlite3", which
+    SQLite would open relative to wherever manage.py was started from, silently
+    creating an empty database when run from another folder.
+    """
+    name = db_config.get("NAME", "")
+    if db_config.get("ENGINE") == "django.db.backends.sqlite3" and name and name != ":memory:":
+        if not Path(name).is_absolute():
+            db_config["NAME"] = str(base_dir / name)
+    return db_config
+
+
 DATABASES = {
-    "default": dj_database_url.config(
-        default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
-        conn_max_age=600,
+    "default": resolve_sqlite_path(
+        dj_database_url.config(default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}", conn_max_age=600),
+        BASE_DIR,
     )
 }
 

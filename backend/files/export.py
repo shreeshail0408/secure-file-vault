@@ -40,29 +40,33 @@ administrator through a separate, secure channel.
 How to decrypt everything
 -------------------------
 1. Unzip this archive into a folder, e.g. vault-export/
-2. Install the only dependency:   pip install cryptography
-3. Put the key in an environment variable, so it doesn't appear on the
-   command line or in the process list:
+2. Install the only dependency (Python 3.8+):   pip install cryptography
+3. Give the tool the key. It is never accepted as a command-line argument,
+   because those leak into shell history and the process list:
 
-       export FERNET_KEY='<the key>'
+       Linux/macOS:   export FERNET_KEY='<the key>'
+       PowerShell:    $env:FERNET_KEY = '<the key>'
+       or:            --key-file key.txt   (file with the key, or a FERNET_KEY=... line)
 
 4. Run:
 
-       python decrypt_tool.py --input vault-export/ --output decrypted/
+       python decrypt_tool.py vault-export/ --out decrypted/
 
-   decrypt_tool.py reads manifest.json, restores each file's original name,
-   and checks every file against its sha256.
+   It reads manifest.json, restores each file's original name, checks every
+   file against its sha256 and size, prints "verified" or "MISMATCH" per file,
+   and ends with a summary. Existing files are never overwritten (a second
+   "report.pdf" becomes "report (1).pdf"). Exit code 0 = everything verified.
 
 Decrypting a single file
 ------------------------
-       python decrypt_tool.py --input vault-export/<name>.enc --output report.pdf
+       python decrypt_tool.py vault-export/<name>.enc --out decrypted/
 
 Checking a file by hand
 -----------------------
        sha256sum decrypted/report.pdf    # must equal "sha256" in manifest.json
 
-A wrong key or a modified .enc file is reported as an error; it never produces
-a silently corrupted file.
+A wrong key or a modified .enc file is reported as an error for that file; it
+never produces a silently corrupted file.
 """
 
 

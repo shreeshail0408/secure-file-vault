@@ -80,7 +80,7 @@ file-encryption/
 ```
 SECRET_KEY=change-me
 DEBUG=True
-DATABASE_URL=sqlite:///db.sqlite3          # prod: postgres://... or mysql://...
+DATABASE_URL=sqlite:///db.sqlite3          # relative = backend/db.sqlite3; prod: postgres://... or mysql://...
 FERNET_KEY=<generate, see below>
 FRONTEND_URL=http://localhost:5173
 ALLOWED_HOSTS=localhost,127.0.0.1
@@ -256,15 +256,31 @@ command in `files/management/commands/seed_files.py`.
 
 ### `decrypt_tool.py` (standalone)
 
-Depends only on `cryptography` — no Django.
+`backend/decrypt_tool.py`: Python 3.8+, only stdlib + `cryptography` (a test checks
+the imports), no Django. Works on Linux, macOS and Windows.
 
 ```
-python decrypt_tool.py --key <FERNET_KEY> --input file.enc --output file.pdf
-python decrypt_tool.py --key <FERNET_KEY> --input export_dir/ --output out_dir/   # uses manifest.json if present
+export FERNET_KEY='<key>'                               # or: --key-file key.txt (.env line OK)
+python decrypt_tool.py vault-export/ --out decrypted/   # unzipped export, uses manifest.json
+python decrypt_tool.py vault-export/<uuid>.enc          # one file (manifest beside it if present)
 ```
 
-Key may also come from `FERNET_KEY` env var. Print a clear error on a wrong key
-(`InvalidToken`).
+- **Never `--key`:** a key on the command line leaks into shell history and `ps`.
+  `--key`/`--key=` are refused (exit 2), and the key is never printed.
+  `allow_abbrev=False`, so `--key` can't silently match `--key-file`.
+- **With a manifest:** original names restored; sha256 + size checked; per-file
+  `✓ verified` / `✗ MISMATCH` / `✗ FAILED` / `✗ MISSING`, then
+  `Summary: N ok, N failed, N missing`. Mismatched files are not written.
+  Without a manifest: the extension comes from the magic bytes, and the output
+  says "sha256 not checked".
+- **Safe output:** names are cleaned (folders, control chars, Windows `<>:"/\|?*`,
+  `CON`/`NUL`/`COM1`…, trailing dots); manifest `stored_name` must match
+  `<32 hex>.enc`. Files are opened with `"xb"` (never overwrite), so duplicates become
+  `report (1).pdf`; the final path must be directly inside `--out`.
+- **Keeps going:** wrong key, tampered file, or a write error only fails that file.
+  Exit 0 = all ok/verified, 1 = any failed/missing, 2 = can't start (no/invalid
+  key, bad input, broken manifest).
+- Uses `✓`/`✗` only if the console can print them (falls back to `OK`/`X`).
 
 ---
 
