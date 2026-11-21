@@ -2,13 +2,13 @@ import { act, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { getAccessToken, getRefreshToken, setTokens } from "../api/tokens";
-import { ALICE, deferred, fakeServer, renderApp } from "../test/fakeServer";
+import { ALICE, deferred, EMPTY_PAGE, fakeServer, renderApp } from "../test/fakeServer";
 
 describe("protected routes", () => {
   it("shows a spinner (not the login page) while /auth/me/ is loading", async () => {
     setTokens({ access: "a", refresh: "r" });
     const me = deferred();
-    fakeServer({ "GET /auth/me/": me.promise });
+    fakeServer({ "GET /files/": EMPTY_PAGE, "GET /auth/me/": me.promise });
 
     renderApp("/");
 
@@ -17,8 +17,8 @@ describe("protected routes", () => {
 
     await act(async () => me.resolve({ status: 200, data: ALICE }));
 
-    expect(await screen.findByText("Welcome, alice")).toBeInTheDocument();
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Files" })).toBeInTheDocument();
+    expect(screen.queryByText("Loading...")).not.toBeInTheDocument(); // the auth spinner is gone
   });
 
   it("without tokens goes straight to the login page (no /me call)", async () => {
@@ -33,7 +33,7 @@ describe("protected routes", () => {
   it("expired session (me 401 + refresh 401) ends on the login page with tokens cleared", async () => {
     setTokens({ access: "old", refresh: "expired" });
     fakeServer({
-      "GET /auth/me/": { status: 401, data: {} },
+      "GET /files/": EMPTY_PAGE, "GET /auth/me/": { status: 401, data: {} },
       "POST /auth/refresh/": { status: 401, data: {} },
     });
 
@@ -46,16 +46,16 @@ describe("protected routes", () => {
 
   it("logged-in users visiting /login are sent to the dashboard", async () => {
     setTokens({ access: "a", refresh: "r" });
-    fakeServer({ "GET /auth/me/": { status: 200, data: ALICE } });
+    fakeServer({ "GET /files/": EMPTY_PAGE, "GET /auth/me/": { status: 200, data: ALICE } });
 
     renderApp("/login");
 
-    expect(await screen.findByText("Welcome, alice")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Files" })).toBeInTheDocument();
   });
 
   it("shows the Admin badge only for staff users", async () => {
     setTokens({ access: "a", refresh: "r" });
-    fakeServer({ "GET /auth/me/": { status: 200, data: { ...ALICE, is_staff: true } } });
+    fakeServer({ "GET /files/": EMPTY_PAGE, "GET /auth/me/": { status: 200, data: { ...ALICE, is_staff: true } } });
 
     renderApp("/");
 
@@ -66,7 +66,7 @@ describe("protected routes", () => {
 describe("logout", () => {
   it("clears both tokens and shows the login page", async () => {
     setTokens({ access: "a", refresh: "r" });
-    fakeServer({ "GET /auth/me/": { status: 200, data: ALICE } });
+    fakeServer({ "GET /files/": EMPTY_PAGE, "GET /auth/me/": { status: 200, data: ALICE } });
     renderApp("/");
 
     await userEvent.click(await screen.findByRole("button", { name: "Log out" }));

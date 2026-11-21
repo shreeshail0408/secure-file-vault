@@ -2,7 +2,7 @@ import { act, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { getAccessToken } from "../api/tokens";
-import { ALICE, deferred, fakeServer, renderApp } from "../test/fakeServer";
+import { ALICE, deferred, EMPTY_PAGE, fakeServer, renderApp } from "../test/fakeServer";
 
 const TOKENS = { status: 200, data: { access: "new-a", refresh: "new-r" } };
 
@@ -14,12 +14,12 @@ async function fillLogin(username = "alice", password = "Vault-Tiger-2026!") {
 
 describe("Login page", () => {
   it("logs in and shows the dashboard", async () => {
-    fakeServer({ "POST /auth/login/": TOKENS, "GET /auth/me/": { status: 200, data: ALICE } });
+    fakeServer({ "POST /auth/login/": TOKENS, "GET /files/": EMPTY_PAGE, "GET /auth/me/": { status: 200, data: ALICE } });
     renderApp("/login");
 
     await fillLogin();
 
-    expect(await screen.findByText("Welcome, alice")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Files" })).toBeInTheDocument();
     expect(getAccessToken()).toBe("new-a");
   });
 
@@ -123,12 +123,12 @@ describe("Register page", () => {
     const server = fakeServer({
       "POST /auth/register/": { status: 201, data: ALICE },
       "POST /auth/login/": TOKENS,
-      "GET /auth/me/": { status: 200, data: ALICE },
+      "GET /files/": EMPTY_PAGE, "GET /auth/me/": { status: 200, data: ALICE },
     });
 
     await fillRegister(server);
 
-    expect(await screen.findByText("Welcome, alice")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Files" })).toBeInTheDocument();
     expect(server.count("POST /auth/login/")).toBe(1);
   });
 

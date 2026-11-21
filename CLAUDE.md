@@ -71,7 +71,11 @@ file-encryption/
         ├── api/  client.js (axios + interceptors), tokens.js, errors.js (describeError)
         ├── auth/ AuthContext.jsx (AuthProvider), useAuth.js, ProtectedRoute.jsx, PublicOnlyRoute.jsx
         ├── pages/  Login.jsx, Register.jsx, Dashboard.jsx (+ Upload in Phase 10)
-        ├── components/  Navbar, Spinner, TextField, SubmitButton, AuthCard (+ FileCard, PreviewModal, … later)
+        ├── api/files.js             # listFiles, fetchBlob, downloadFile, filenameFromDisposition, describeBlobError
+        ├── hooks/  useFileFilters.js (URL state), useFileList.js (fetch + derived loading)
+        ├── utils/format.js          # formatSize, formatDate
+        ├── components/  Navbar, Spinner, TextField, SubmitButton, AuthCard, BusyButton
+        ├── components/files/  SearchBar, FileResults, FileCard, LoadingGrid, Pagination, PreviewModal
         └── test/  setup.js, fakeServer.jsx (fake axios adapter + renderApp); *.test.js(x) next to code
 ```
 
@@ -318,15 +322,36 @@ no Redux. Small components.
 - Routes: `/login`, `/register`, `/` (Dashboard), `*` → `/`.
 - Tests: `npm test` (Vitest + Testing Library + jsdom). `test/fakeServer.jsx` swaps
   axios's adapter so the real interceptors run, with no network.
-- **Dashboard:** card grid (name, type badge, size, date), search box (debounced
-  ~300 ms), type filter dropdown (All / PDF / Image), pagination, actions per card:
-  Preview, Download (always), Rename/Replace, Delete (**only when `file.can_edit`**).
-  "Export all" button visible only to admins. Hiding buttons is just UX — the API
-  still returns 403; show that error if it ever happens.
-- **PreviewModal:** fetch `preview/` with axios as a **blob** (the auth header can't be
-  sent from a plain `<iframe src>`), then `URL.createObjectURL(blob)`:
-  PDF → `<iframe>`, image → `<img>`. Revoke the object URL on close.
-- **Download / Export:** fetch as blob, create a temporary `<a download>` link.
+- **Dashboard** (`pages/Dashboard.jsx` + `components/files/*`):
+  - `FileCard`: Bootstrap Icons type icon (no thumbnails; that would mean decrypting
+    every image on the page), name, PDF/Image badge, size (`utils/format.js`:
+    B/KB/MB), date (`21 Nov 2026`, en-GB), uploader. Preview + Download always;
+    Edit/Delete **only when `file.can_edit`** (disabled placeholders until Phase 10).
+    Hiding is just UX; the API still returns 403.
+  - **URL is the state** (`hooks/useFileFilters.js`): `?search=&type=&page=`, so
+    reload and Back work. A new search or type → page 1. Page/type changes push a
+    history entry; search uses `replace` (no history entry per word).
+  - `SearchBar`: 300 ms debounce via `setTimeout` in onChange; syncs its text when the
+    URL changes from outside (Back / Clear) using the "adjust state during render"
+    pattern (no effect).
+  - `hooks/useFileList.js`: fetch on filter change with `AbortController`; `loading`
+    is derived (`result.key !== key`), not set inside the effect.
+  - `FileResults`: `LoadingGrid` skeleton → error alert + Retry → page-404 ("Go to
+    page 1") → empty state (`No files match "xyz".` + Clear filters) → grid +
+    `Pagination` ("Showing 21–40 of 100", Prev / "Page X of Y" / Next).
+    `PAGE_SIZE = 20` in `api/files.js` must match the backend's `PAGE_SIZE`.
+  - "Export all" (admins only) → `downloadFile("/files/export/")`.
+- **PreviewModal:** `fetchBlob(preview/)` (an `<iframe src>` can't send the JWT). The
+  blob is re-wrapped with the stored `mime_type` (never HTML), shown via
+  `URL.createObjectURL` (PDF → `<iframe>`, image → `<img>`), and **revoked** on
+  close/unmount; the request is aborted if closed early. Spinner while decrypting.
+  Errors: blob bodies are parsed as JSON (`describeBlobError`), so the backend's
+  "Could not decrypt file…" is shown. Escape, backdrop or Close dismiss it.
+- **Download / Export:** `downloadFile(url, fallbackName)` → blob → name from
+  `Content-Disposition` via `filenameFromDisposition` (prefers RFC 5987 `filename*`,
+  un-escapes quoted `filename`, falls back to `original_name`) → `saveBlob`
+  (temporary `<a download>`, URL revoked after 1 s). Needs
+  `CORS_EXPOSE_HEADERS = ["Content-Disposition"]` (backend settings).
 - **Rename/Replace modal:** text input for rename (PATCH), file input for replace (PUT).
 - **Delete:** confirm dialog, then DELETE and refresh the list.
 - Show loading and error messages for every request.
