@@ -137,9 +137,25 @@ Losing the key means losing every file — warn about this in the README.
 
 ### Upload validation
 
-- Allowed: `application/pdf`, `image/png`, `image/jpeg` (optionally `image/gif`, `image/webp`).
-- Check both extension and content (PDF starts with `%PDF`; images open with Pillow).
-- Max size from settings (e.g. 10 MB). Reject everything else with 400.
+All in `files/validation.py`; every failure is a 400 with a clear message.
+
+- **Content decides the type** (magic bytes): `%PDF-` → pdf, `\x89PNG\r\n\x1a\n` → png,
+  `\xFF\xD8\xFF` → jpg. The client's Content-Type is ignored. The extension must
+  also match the content (`.pdf` / `.png` / `.jpg`, `.jpeg`).
+- **Size:** > `MAX_UPLOAD_SIZE` (10 MB) is rejected before reading or encrypting.
+  Request bodies over `FILE_UPLOAD_MAX_MEMORY_SIZE` (10 MB + 1 MB form overhead)
+  are rejected from `CONTENT_LENGTH` before Django parses them. Empty files rejected.
+- **In-memory uploads only:** `FILE_UPLOAD_HANDLERS = [MemoryFileUploadHandler]`.
+  Django's default would spill uploads > 2.5 MB into a temp file, which would put
+  plaintext on disk.
+- **Names** (upload and rename): folder parts are dropped (`../../x` → `x`), Unicode
+  control/format characters are removed (`\n`, `\r`, `\x1b`, U+202E RTL override);
+  NUL is refused by DRF's `CharField`. Empty names → 400; max 255 characters.
+- **Rename keeps the extension:** everything before the last dot + the current
+  extension (`hack.exe` → `hack.pdf`, `notes` → `notes.pdf`, `.pdf` → 400).
+- **Replace:** the new file must have the same `file_type` (pdf↔pdf, image↔image).
+  PNG→JPG is allowed and updates `mime_type` and the name's extension. The old
+  `.enc` is deleted via `on_commit`.
 
 ### API (all under `/api/`)
 
@@ -170,7 +186,19 @@ Losing the key means losing every file — warn about this in the README.
     `accounts.throttles.AuthRateThrottle`, which reads the rate at request time so
     tests can override it. Tests run with throttling off, except `ThrottleTests`.
 - Use a DRF `ModelViewSet` + `@action`s for preview/download/replace/export to keep it in one readable file.
-- Search: `?search=` → `original_name__icontains`. Filter: `?type=` → `file_type`.
+- Search: `?search=` → `original_name__icontains`. Filter: `?type=` → `file_type`
+  (anything other than `pdf`/`image` → 400).
+- `FileRecordViewSet` has no `update`, so `PUT /files/<id>/` → 405; content
+  changes go through `replace/`.
+- Unknown or malformed id → 404 (from `get_object`).
+- Preview/download errors → JSON 500, logged, never a traceback:
+  `DecryptionError` → `{"detail": "Could not decrypt file: ..."}`, missing `.enc` →
+  `{"detail": "The stored file is missing on the server."}`.
+- `Content-Disposition` via `django.utils.http.content_disposition_header`: quotes
+  escaped; non-ASCII or control characters → `filename*=utf-8''...`. Responses also
+  send `Cache-Control: private, no-store`.
+- `FileRecordSerializer` exposes `can_edit` and the uploader's username, never
+  `stored_name`.
 - Permissions:
   - `IsAuthenticated` on everything; export also uses `IsAdminUser`.
   - **Read** (list, search, metadata, preview, download): every logged-in user, every file.

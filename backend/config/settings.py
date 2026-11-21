@@ -59,6 +59,15 @@ STORAGE_DIR = BASE_DIR / "storage"
 # Largest upload we accept (bytes).
 MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10 MB
 
+# Keep uploads in memory only. Django's default would also use
+# TemporaryFileUploadHandler, which writes files over 2.5 MB to a temp file on
+# disk while parsing the request, which would put plaintext on disk.
+FILE_UPLOAD_HANDLERS = ["django.core.files.uploadhandler.MemoryFileUploadHandler"]
+# The in-memory handler only accepts request bodies up to this size; bigger
+# bodies are rejected in files.validation before Django parses them.
+# +1 MB leaves room for the multipart form overhead around the file.
+FILE_UPLOAD_MAX_MEMORY_SIZE = MAX_UPLOAD_SIZE + 1024 * 1024
+
 
 # --- Apps -------------------------------------------------------------------
 
