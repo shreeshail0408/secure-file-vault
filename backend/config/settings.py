@@ -188,7 +188,12 @@ SIMPLE_JWT = {
 # --- CORS -------------------------------------------------------------------
 # Only the React dev server / deployed frontend may call the API from a browser.
 
-CORS_ALLOWED_ORIGINS = [os.environ.get("FRONTEND_URL", "http://localhost:5173")]
+# Comma-separated, e.g. "http://localhost:5173,http://127.0.0.1:5173"
+CORS_ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get("FRONTEND_URL", "http://localhost:5173").split(",")
+    if origin.strip()
+]
 # Let the frontend read the filename on downloads.
 CORS_EXPOSE_HEADERS = ["Content-Disposition"]
 

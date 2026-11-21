@@ -64,13 +64,15 @@ file-encryption/
 │       └── management/commands/seed_files.py
 └── frontend/
     ├── package.json
-    ├── .env.example                 # VITE_API_URL=http://localhost:8000/api
+    ├── .env.example                 # VITE_API_URL=http://localhost:8077/api
+    ├── vite.config.js               # port 5173 (strict) + vitest config
     └── src/
         ├── main.jsx, App.jsx        # router setup
-        ├── api/client.js            # axios instance + JWT interceptor
-        ├── auth/ProtectedRoute.jsx
-        ├── pages/  Login.jsx, Register.jsx, Dashboard.jsx, Upload.jsx
-        └── components/  FileCard.jsx, PreviewModal.jsx, RenameReplaceModal.jsx, ConfirmDelete.jsx
+        ├── api/  client.js (axios + interceptors), tokens.js, errors.js (describeError)
+        ├── auth/ AuthContext.jsx (AuthProvider), useAuth.js, ProtectedRoute.jsx, PublicOnlyRoute.jsx
+        ├── pages/  Login.jsx, Register.jsx, Dashboard.jsx (+ Upload in Phase 10)
+        ├── components/  Navbar, Spinner, TextField, SubmitButton, AuthCard (+ FileCard, PreviewModal, … later)
+        └── test/  setup.js, fakeServer.jsx (fake axios adapter + renderApp); *.test.js(x) next to code
 ```
 
 ---
@@ -286,14 +288,36 @@ python decrypt_tool.py vault-export/<uuid>.enc          # one file (manifest bes
 
 ## Frontend design
 
-- `api/client.js`: axios instance with `baseURL = import.meta.env.VITE_API_URL`.
-  - Request interceptor adds `Authorization: Bearer <access>`.
-  - Response interceptor: on 401, call `auth/refresh/` once, retry the original
-    request; if refresh fails, clear tokens and redirect to `/login`.
-    Queue concurrent requests so only one refresh happens.
-- Tokens stored in `localStorage` (simple; mention the XSS trade-off in review).
-- `ProtectedRoute`: no token → `<Navigate to="/login" />`.
-- Routes: `/login`, `/register`, `/` (Dashboard), `/upload`.
+React 19 + Vite 8 + react-router 7 + axios + Bootstrap 5. Plain JS, no TypeScript,
+no Redux. Small components.
+
+- `api/client.js`: `api` = axios instance with `baseURL = import.meta.env.VITE_API_URL`.
+  - Request interceptor adds `Authorization: Bearer <access>`, but **not** to
+    login/register/refresh (a stale token must not break them; the backend's
+    `RegisterView` also sets `authentication_classes = []`).
+  - Response interceptor, on 401 (not from auth URLs, one retry per request):
+    **single in-flight refresh**: all concurrent 401s await the same
+    `refreshPromise`, so there is one `POST auth/refresh/`, then every request is
+    replayed. A 401 for a request sent with an already-replaced token reuses the
+    new token without refreshing again. The refresh uses a separate `refreshClient`
+    (no interceptors). Refresh fails → `clearTokens()` + `window` event
+    `auth:logout` → AuthProvider sets user to null → ProtectedRoute → `/login`.
+- `api/errors.js` `describeError(err)` → `{message, fieldErrors}`: DRF 400 field
+  errors go under each input (`TextField`), `detail`/`non_field_errors` go in the
+  alert, 429 → "Too many attempts, wait a minute…", no response → "Cannot reach
+  the server".
+- Tokens in `localStorage` (`vault.access`, `vault.refresh`). Simple; XSS trade-off
+  noted in `tokens.js`.
+- `AuthProvider`: `loading` starts `true` only if tokens exist, then `GET /auth/me/`
+  (auto-refreshes if needed). `user` = `{id, username, email, is_staff}`. `login()`
+  = POST login → store tokens → GET me. `logout()` clears tokens.
+- `ProtectedRoute`: loading → `<Spinner/>` (no flash of the login page); no user →
+  `/login` (remembers `from`). `PublicOnlyRoute` (login/register) → `/` if logged in.
+- Forms: submit button disabled with a spinner while sending. Register logs in
+  automatically after success.
+- Routes: `/login`, `/register`, `/` (Dashboard), `*` → `/`.
+- Tests: `npm test` (Vitest + Testing Library + jsdom). `test/fakeServer.jsx` swaps
+  axios's adapter so the real interceptors run, with no network.
 - **Dashboard:** card grid (name, type badge, size, date), search box (debounced
   ~300 ms), type filter dropdown (All / PDF / Image), pagination, actions per card:
   Preview, Download (always), Rename/Replace, Delete (**only when `file.can_edit`**).
@@ -340,14 +364,16 @@ cp .env.example .env            # then set FERNET_KEY and SECRET_KEY
 python manage.py migrate
 python manage.py createsuperuser
 python manage.py seed_files
-python manage.py runserver      # http://localhost:8000
+python manage.py runserver 8077 # http://localhost:8077  (port 8000 is used by another project here)
 python manage.py test
 
-# Frontend
+# Frontend (Node >= 20.19)
 cd frontend
 npm install
-cp .env.example .env
-npm run dev                     # http://localhost:5173
+cp .env.example .env            # VITE_API_URL=http://localhost:8077/api
+npm run dev                     # http://localhost:5173 (must match FRONTEND_URL for CORS)
+npm test                        # vitest run
+npm run lint && npm run build
 ```
 
 ---

@@ -91,6 +91,21 @@ class RegisterTests(AuthTestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("confirm_password", response.data)
 
+    def test_register_ignores_a_stale_token(self):
+        self.client.credentials(HTTP_AUTHORIZATION="Bearer expired-or-garbage")
+
+        response = self.client.post(REGISTER_URL, register_payload())
+
+        self.assertEqual(response.status_code, 201)
+
+    def test_login_ignores_a_stale_token(self):
+        User.objects.create_user("bob", "bob@example.com", STRONG_PASSWORD)
+        self.client.credentials(HTTP_AUTHORIZATION="Bearer expired-or-garbage")
+
+        response = self.client.post(LOGIN_URL, {"username": "bob", "password": STRONG_PASSWORD})
+
+        self.assertEqual(response.status_code, 200)
+
     def test_cannot_register_as_staff_or_superuser(self):
         response = self.client.post(
             REGISTER_URL,

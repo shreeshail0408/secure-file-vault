@@ -12,6 +12,9 @@ class RegisterView(generics.GenericAPIView):
 
     serializer_class = RegisterSerializer
     permission_classes = [AllowAny]
+    # Public endpoint: don't even look at an Authorization header. Otherwise a
+    # stale/expired token left in the browser would turn sign-up into a 401.
+    authentication_classes = []
     throttle_classes = [AuthRateThrottle]
     throttle_scope = "register"
 
