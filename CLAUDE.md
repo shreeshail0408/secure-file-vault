@@ -114,6 +114,19 @@ Losing the key means losing every file — warn about this in the README.
 
 - `files/crypto.py`: `encrypt_bytes(data) -> bytes`, `decrypt_bytes(token) -> bytes`.
   Reads `settings.FERNET_KEY`. This is the **only** module that imports Fernet.
+- `decrypt_bytes` wraps Fernet's `InvalidToken` in `crypto.DecryptionError`
+  ("modified or encrypted with a different key"). Phase 4 views must catch it and
+  return a clean JSON error, never a traceback.
+- `files/storage.py`: `save_encrypted(data) -> stored_name`, `read_decrypted(name)`,
+  `delete_file(name)`.
+  - Names are `uuid4().hex + ".enc"`; `_path_for` rejects anything else, so user
+    input can never reach the filesystem.
+  - Atomic writes: ciphertext → `mkstemp` in `STORAGE_DIR` → `fsync` → `os.replace`.
+    The temp file only ever holds ciphertext; on error it is removed.
+  - `delete_file` is a no-op if the file is already gone.
+- A `post_delete` signal on `FileRecord` deletes the `.enc` via
+  `transaction.on_commit`, so bulk deletes are covered and a rolled-back delete
+  never loses the file.
 - **Upload:** read file bytes → validate type → `encrypt_bytes` → write
   `storage/<uuid>.enc` → create `FileRecord`.
 - **Preview/download:** load record → read `.enc` → `decrypt_bytes` → `HttpResponse`
