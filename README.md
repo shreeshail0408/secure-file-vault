@@ -237,3 +237,5 @@ About 10 minutes. Log in as the admin (the `createsuperuser` account).
   plaintext while serving it. Whoever controls the server can read the files.
 - **SQLite** is fine for a demo or a few users; use MySQL for heavier use.
 - No password reset or e-mail verification.
+
+##public url ----  https://shreeshaildivum.pythonanywhere.com/
